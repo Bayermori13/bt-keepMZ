@@ -16,4 +16,4 @@ dependencyResolutionManagement {
 rootProject.name = "BluetoothStayAlive"
 include(":app")
 
-apply(from = "../node_modules/@capacitor/android/capacitor.settings.gradle")
+apply(from = "capacitor.settings.gradle")
