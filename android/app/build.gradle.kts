@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.stayalive.bluetooth"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.stayalive.bluetooth"
@@ -41,6 +41,13 @@ android {
     }
     buildFeatures {
         viewBinding = true
+    }
+}
+
+configurations.all {
+    resolutionStrategy {
+        force("androidx.core:core-ktx:1.12.0")
+        force("androidx.core:core:1.12.0")
     }
 }
 
