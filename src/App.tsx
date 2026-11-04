@@ -19,7 +19,9 @@ import {
   Activity,
 } from 'lucide-react';
 
-const STORAGE_KEY_EVENTS = 'mz_bt_events_history_v4';
+import { NativeServiceBridge } from './utils/nativeServiceBridge';
+
+const STORAGE_KEY_EVENTS = 'mz_bt_events_history_v5';
 
 export default function App() {
   const [language, setLanguage] = useState<Language>('fa');
@@ -28,13 +30,36 @@ export default function App() {
   const [devices, setDevices] = useState<BluetoothDeviceInfo[]>([]);
   const [activeDeviceId, setActiveDeviceId] = useState<string>('');
   const [events, setEvents] = useState<ActivityEvent[]>([]);
+  const [uptimeSeconds, setUptimeSeconds] = useState<number>(0);
+
+  // Global Uptime timer that persists across tab navigation
+  useEffect(() => {
+    let timer: number;
+    if (isServiceActive) {
+      timer = window.setInterval(() => {
+        setUptimeSeconds(prev => prev + 1);
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [isServiceActive]);
 
   // Load real saved devices & saved events on initial mount
   useEffect(() => {
-    const loadedDevices = BluetoothService.getSavedDevices();
-    setDevices(loadedDevices);
-    const initialActive = BluetoothService.getActiveDeviceId() || loadedDevices[0]?.id || '';
-    setActiveDeviceId(initialActive);
+    const initDevices = async () => {
+      let loadedDevices = BluetoothService.getSavedDevices();
+      if (loadedDevices.length === 0) {
+        const nativePaired = await NativeServiceBridge.getPairedDevices();
+        if (nativePaired.length > 0) {
+          loadedDevices = nativePaired;
+          BluetoothService.saveDevices(loadedDevices);
+        }
+      }
+      setDevices(loadedDevices);
+      const initialActive = BluetoothService.getActiveDeviceId() || loadedDevices[0]?.id || '';
+      setActiveDeviceId(initialActive);
+    };
+
+    initDevices();
 
     try {
       const savedEvents = localStorage.getItem(STORAGE_KEY_EVENTS);
@@ -49,6 +74,7 @@ export default function App() {
     const enableAudio = () => {
       try {
         audioEngine.start('pure_silence');
+        NativeServiceBridge.start();
       } catch {
         // AudioContext autoplay deferred
       }
@@ -59,6 +85,7 @@ export default function App() {
 
     try {
       audioEngine.start('pure_silence');
+      NativeServiceBridge.start();
     } catch {
       // Safe fallback
     }
@@ -79,6 +106,7 @@ export default function App() {
   const handleToggleService = () => {
     if (isServiceActive) {
       audioEngine.stop();
+      NativeServiceBridge.stop();
       setIsServiceActive(false);
       handleAddLog({
         type: 'keepalive',
@@ -87,6 +115,7 @@ export default function App() {
       });
     } else {
       audioEngine.start('pure_silence');
+      NativeServiceBridge.start();
       setIsServiceActive(true);
       handleAddLog({
         type: 'keepalive',
@@ -156,6 +185,7 @@ export default function App() {
             onAddLog={handleAddLog}
             isActive={isServiceActive}
             onToggleActive={handleToggleService}
+            uptimeSeconds={uptimeSeconds}
           />
         )}
 

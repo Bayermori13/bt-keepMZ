@@ -1,7 +1,7 @@
 import { BluetoothDeviceInfo } from '../types';
 
-const STORAGE_KEY_DEVICES = 'mz_bt_devices_history_v4';
-const STORAGE_KEY_ACTIVE_DEVICE = 'mz_bt_active_device_id_v4';
+const STORAGE_KEY_DEVICES = 'mz_bt_devices_history_v5';
+const STORAGE_KEY_ACTIVE_DEVICE = 'mz_bt_active_device_id_v5';
 
 export class BluetoothService {
   public static getSavedDevices(): BluetoothDeviceInfo[] {

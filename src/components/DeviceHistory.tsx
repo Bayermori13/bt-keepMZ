@@ -11,6 +11,8 @@ import {
 import { BluetoothDeviceInfo, Language, ActivityEvent } from '../types';
 import { BluetoothService } from '../utils/bluetoothService';
 
+import { NativeServiceBridge } from '../utils/nativeServiceBridge';
+
 interface DeviceHistoryProps {
   language: Language;
   devices: BluetoothDeviceInfo[];
@@ -55,7 +57,7 @@ export const DeviceHistory: React.FC<DeviceHistoryProps> = ({
   };
 
   const handleWebBluetoothScan = async () => {
-    // 1. Try real Web Bluetooth API
+    // 1. Try real Web Bluetooth API picker
     const scanned = await BluetoothService.requestWebBluetoothDevice();
     if (scanned) {
       const updated = [scanned, ...devices.filter(d => d.id !== scanned.id)];
@@ -70,11 +72,11 @@ export const DeviceHistory: React.FC<DeviceHistoryProps> = ({
       return;
     }
 
-    // 2. Detect real browser connected audio output devices
-    const realDevices = await BluetoothService.detectRealAudioDevices();
-    if (realDevices.length > 0) {
+    // 2. Fetch real paired/bonded bluetooth devices from Android OS system history
+    const nativePaired = await NativeServiceBridge.getPairedDevices();
+    if (nativePaired.length > 0) {
       const existingIds = new Set(devices.map(d => d.id));
-      const newDevices = realDevices.filter(d => !existingIds.has(d.id));
+      const newDevices = nativePaired.filter(d => !existingIds.has(d.id));
       if (newDevices.length > 0) {
         const updated = [...newDevices, ...devices];
         onUpdateDevices(updated);
@@ -82,18 +84,17 @@ export const DeviceHistory: React.FC<DeviceHistoryProps> = ({
         onSelectActiveDevice(newDevices[0].id);
         onAddLog({
           type: 'connect',
-          title: isFa ? 'شناسایی خروجی صوتی سیستم' : 'Audio Output Detected',
-          detail: isFa ? `دستگاه ${newDevices[0].name} شناسه صوتی سیستم دریافت نمود.` : `${newDevices[0].name} attached.`,
+          title: isFa ? 'بارگذاری تاریخچه بلوتوث گوشی' : 'Bluetooth History Loaded',
+          detail: isFa ? `${newDevices.length} دستگاه جفت‌شده از حافظه بلوتوث گوشی بارگذاری شد.` : `Loaded ${newDevices.length} paired devices from phone.`,
         });
         return;
       }
     }
 
-    // 3. User cancelled or no device selected
     onAddLog({
       type: 'disconnect',
-      title: isFa ? 'عدم انتخاب دستگاه' : 'No Device Selected',
-      detail: isFa ? 'اسکن لغو شد یا هیچ دستگاه بلوتوث متصلی یافت نگردید.' : 'Scan cancelled or no device found.',
+      title: isFa ? 'عدم یافتن دستگاه' : 'No Device Found',
+      detail: isFa ? 'هیچ دستگاه بلوتوث جفت‌شده‌ای در گوشی یافت نشد یا اسکن لغو گردید.' : 'No paired bluetooth devices found.',
     });
   };
 

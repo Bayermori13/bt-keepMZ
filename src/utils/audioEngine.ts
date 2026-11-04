@@ -203,6 +203,14 @@ class WebAudioEngine {
   public getIsRunning() {
     return this.isRunning;
   }
+
+  public getSampleRate(): number {
+    return this.ctx?.sampleRate || 44100;
+  }
+
+  public getContextState(): string {
+    return this.ctx?.state || 'idle';
+  }
 }
 
 export const audioEngine = new WebAudioEngine();

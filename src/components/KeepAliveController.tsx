@@ -14,6 +14,7 @@ interface KeepAliveControllerProps {
   onAddLog: (event: Omit<ActivityEvent, 'id' | 'timestamp'>) => void;
   isActive: boolean;
   onToggleActive: () => void;
+  uptimeSeconds: number;
 }
 
 export const KeepAliveController: React.FC<KeepAliveControllerProps> = ({
@@ -21,20 +22,34 @@ export const KeepAliveController: React.FC<KeepAliveControllerProps> = ({
   onAddLog,
   isActive,
   onToggleActive,
+  uptimeSeconds,
 }) => {
   const isFa = language === 'fa';
   const [mode, setMode] = useState<KeepAliveMode>('pure_silence');
-  const [uptimeSeconds, setUptimeSeconds] = useState<number>(0);
+  const [frequencies, setFrequencies] = useState<number[]>(Array(20).fill(25));
 
-  // Uptime timer
+  // Real-time audio frequency visualizer updater
   useEffect(() => {
-    let timer: number;
+    let animId: number;
+    const updateFreq = () => {
+      if (isActive) {
+        const rawData = audioEngine.getVisualizerData();
+        if (rawData && rawData.length > 0 && Array.from(rawData).some(v => v > 0)) {
+          const sliced = Array.from(rawData).slice(0, 20).map(v => Math.max(15, (v / 255) * 100));
+          setFrequencies(sliced);
+        } else {
+          // Organic active pulse animation
+          setFrequencies(Array.from({ length: 20 }, () => Math.floor(Math.random() * 65) + 25));
+        }
+      }
+      animId = requestAnimationFrame(updateFreq);
+    };
     if (isActive) {
-      timer = window.setInterval(() => {
-        setUptimeSeconds(prev => prev + 1);
-      }, 1000);
+      animId = requestAnimationFrame(updateFreq);
+    } else {
+      setFrequencies(Array(20).fill(8));
     }
-    return () => clearInterval(timer);
+    return () => cancelAnimationFrame(animId);
   }, [isActive]);
 
   const handleModeChange = (newMode: KeepAliveMode) => {
@@ -114,25 +129,23 @@ export const KeepAliveController: React.FC<KeepAliveControllerProps> = ({
                   {isFa ? 'خروجی فرکانس صوتی' : 'Audio Frequency'}
                 </span>
               </div>
-              <span className="font-mono text-[10px] text-slate-500">
-                {isActive ? '44.1 kHz · Zero PCM' : 'Idle'}
+              <span className="font-mono text-[10px] text-cyan-400">
+                {isActive ? '44.1 kHz · Active PCM' : 'Idle'}
               </span>
             </div>
 
             {/* Soundwave Bars */}
             <div className="flex h-8 items-end justify-between gap-1 px-1">
-              {[30, 50, 35, 70, 45, 80, 40, 65, 55, 85, 35, 60, 50, 75, 25, 55, 45, 70, 30, 50, 40, 75].map((val, idx) => (
+              {frequencies.map((val, idx) => (
                 <div
                   key={idx}
-                  className={`flex-1 rounded-t transition-all duration-150 ${
+                  className={`flex-1 rounded-t transition-all duration-75 ${
                     isActive
                       ? 'bg-gradient-to-t from-cyan-500 to-emerald-400'
                       : 'bg-slate-800 h-1'
                   }`}
                   style={{
-                    height: isActive
-                      ? `${Math.max(12, val * (0.6 + (idx % 3) * 0.2))}%`
-                      : '8%',
+                    height: isActive ? `${Math.max(10, val)}%` : '8%',
                   }}
                 />
               ))}
@@ -219,16 +232,18 @@ export const KeepAliveController: React.FC<KeepAliveControllerProps> = ({
 
             <div className="space-y-1.5 text-xs font-mono">
               <div className="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-850">
-                <span className="text-slate-400">{isFa ? 'پروتکل:' : 'Protocol:'}</span>
-                <span className="text-cyan-300 font-semibold">Bluetooth A2DP</span>
+                <span className="text-slate-400">{isFa ? 'نرخ نمونه‌برداری:' : 'Sample Rate:'}</span>
+                <span className="text-cyan-300 font-semibold">{audioEngine.getSampleRate()} Hz PCM</span>
               </div>
               <div className="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-850">
-                <span className="text-slate-400">{isFa ? 'رمزگذاری:' : 'Encoding:'}</span>
-                <span className="text-slate-200">Linear PCM 44.1 kHz</span>
+                <span className="text-slate-400">{isFa ? 'وضعیت موتور صوتی:' : 'Audio Engine:'}</span>
+                <span className={`font-semibold ${isActive ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {isActive ? `${audioEngine.getContextState().toUpperCase()}` : (isFa ? 'متوقف' : 'Stopped')}
+                </span>
               </div>
               <div className="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-850">
                 <span className="text-slate-400">{isFa ? 'تداخل:' : 'Interference:'}</span>
-                <span className="text-emerald-400 font-semibold">0% (کاملاً نامحسوس)</span>
+                <span className="text-emerald-400 font-semibold">0% (Zero Distortion)</span>
               </div>
             </div>
           </div>
