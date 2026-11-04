@@ -1,0 +1,13 @@
+{
+	"appId": "com.mz.btkeeper",
+	"appName": "نگه‌دارنده بلوتوث MZ",
+	"webDir": "dist",
+	"server": {
+		"androidScheme": "https"
+	},
+	"plugins": {
+		"CapacitorHttp": {
+			"enabled": true
+		}
+	}
+}

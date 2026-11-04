@@ -1,0 +1,19 @@
+{
+  "short_name": "نگه‌دارنده MZ",
+  "name": "MZ Bluetooth Keeper - نگه‌دارنده بلوتوث",
+  "description": "اپلیکیشن نگه‌دارنده دائم اتصال هندزفری بلوتوث با استریم دائم سکوت",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 108 108'%3E%3Crect width='108' height='108' rx='26' fill='%23090D16'/%3E%3Cpath d='M27 45V73M27 45L40 61L51 45M51 45V73' stroke='%2306B6D4' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M59 45H81M79 46L61 72M59 73H81' stroke='%2310B981' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M48 27L54 32L51 35M54 32L60 27M54 23V37' stroke='%2338BDF8' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E",
+      "type": "image/svg+xml",
+      "sizes": "192x192 512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#090d16",
+  "theme_color": "#090d16",
+  "display": "standalone",
+  "orientation": "portrait",
+  "lang": "fa",
+  "dir": "rtl"
+}

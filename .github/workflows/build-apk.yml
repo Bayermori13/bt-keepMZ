@@ -1,54 +1,60 @@
-name: Build Android APK (Bluetooth StayAlive)
+name: Build Android APK (Capacitor)
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ main, master ]
   pull_request:
-    branches: [ "main", "master" ]
+    branches: [ main, master ]
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
-  build:
-    name: Build Debug & Release APK
+  build-apk:
+    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v3
 
-      - name: Set up Java JDK 17
-        uses: actions/setup-java@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
         with:
-          distribution: 'temurin'
+          node-version: 18
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build Web Application
+        run: npm run build
+
+      - name: Setup Java JDK 17
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu'
           java-version: '17'
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Initialize Capacitor Android Platform
+        run: |
+          npx cap add android || true
+          npx cap sync android
+
       - name: Grant Execute Permission for Gradlew
         run: |
-          if [ -f "gradlew" ]; then
-            chmod +x gradlew
-          elif [ -f "android/gradlew" ]; then
+          if [ -f android/gradlew ]; then
             chmod +x android/gradlew
           fi
 
-      - name: Build Debug APK with Gradle
+      - name: Build Android Debug APK
         run: |
-          if [ -f "gradlew" ]; then
-            ./gradlew assembleDebug --stacktrace
-          elif [ -f "android/gradlew" ]; then
-            cd android && ./gradlew assembleDebug --stacktrace
-          fi
+          cd android
+          ./gradlew assembleDebug
 
-      - name: Find and Upload APK Artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload Android APK Artifact
+        uses: actions/upload-artifact@v3
         with:
-          name: BluetoothStayAlive-Debug-APK
-          path: |
-            **/build/outputs/apk/debug/*.apk
-            **/build/outputs/apk/release/*.apk
-          retention-days: 14
+          name: Bluetooth-StayAlive-MZ.apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
