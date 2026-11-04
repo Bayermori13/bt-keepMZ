@@ -1,0 +1,28 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  body {
+    font-family: 'Vazirmatn', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+  
+  :lang(en) {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+
+  code, pre, .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+/* Custom soundwave pulse animation */
+@keyframes audioWave {
+  0%, 100% { height: 18%; }
+  50% { height: 96%; }
+}
+
+.animate-audio-bar-1 { animation: audioWave 1.2s ease-in-out infinite 0.1s; }
+.animate-audio-bar-2 { animation: audioWave 1.0s ease-in-out infinite 0.25s; }
+.animate-audio-bar-3 { animation: audioWave 1.4s ease-in-out infinite 0.05s; }
+.animate-audio-bar-4 { animation: audioWave 1.1s ease-in-out infinite 0.35s; }
+.animate-audio-bar-5 { animation: audioWave 1.3s ease-in-out infinite 0.15s; }

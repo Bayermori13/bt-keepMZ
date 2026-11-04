@@ -1,0 +1,6 @@
+{
+  "name": "Bluetooth StayAlive - Anti-Disconnect & Silent Streamer",
+  "description": "Smart Bluetooth keep-alive and silent streamer for Android & Web. Prevents headset sleep without disrupting music or calls, with complete Android Studio project and GitHub Actions APK builder.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

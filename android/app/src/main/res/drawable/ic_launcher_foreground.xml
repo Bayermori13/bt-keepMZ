@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Subtle Bluetooth Tech Wave Crest (Top safe-zone) -->
+    <path
+        android:pathData="M48,27 L54,32 L51,35 M54,32 L60,27 M54,23 L54,37"
+        android:strokeColor="#38BDF8"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- Left Sound Wave Arc -->
+    <path
+        android:pathData="M42,28 A7,7 0 0 0 42,36"
+        android:strokeColor="#06B6D4"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round" />
+
+    <!-- Right Sound Wave Arc -->
+    <path
+        android:pathData="M66,28 A7,7 0 0 1 66,36"
+        android:strokeColor="#10B981"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round" />
+
+    <!-- Stylized Geometric Logo Letter 'M' -->
+    <!-- Left vertical stem -->
+    <path
+        android:pathData="M27,45 L27,73"
+        android:strokeColor="#06B6D4"
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round" />
+
+    <!-- M inner peaks (Neon Cyan to Sky Blue) -->
+    <path
+        android:pathData="M27,45 L40,61 L51,45"
+        android:strokeColor="#38BDF8"
+        android:strokeWidth="4.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- M right vertical stem -->
+    <path
+        android:pathData="M51,45 L51,73"
+        android:strokeColor="#06B6D4"
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round" />
+
+    <!-- Stylized Dynamic Logo Letter 'Z' (Electric Emerald to Cyan) -->
+    <!-- Z Top bar -->
+    <path
+        android:pathData="M59,45 L81,45"
+        android:strokeColor="#10B981"
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round" />
+
+    <!-- Z Diagonal cross bar -->
+    <path
+        android:pathData="M79,46 L61,72"
+        android:strokeColor="#34D399"
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- Z Bottom bar -->
+    <path
+        android:pathData="M59,73 L81,73"
+        android:strokeColor="#10B981"
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round" />
+
+    <!-- Center Tech Energy Point -->
+    <path
+        android:pathData="M54,58 A1.5,1.5 0 1 0 54,61 A1.5,1.5 0 1 0 54,58"
+        android:fillColor="#F0FDFA" />
+
+    <!-- Bottom Accent Underline -->
+    <path
+        android:pathData="M34,81 L74,81"
+        android:strokeColor="#155E75"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round" />
+</vector>
