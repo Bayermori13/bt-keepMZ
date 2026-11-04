@@ -45,8 +45,23 @@ export default function App() {
       // Storage error
     }
 
-    // Start background audio stream
-    audioEngine.start('pure_silence');
+    // Safely attempt audio engine init on user interaction or mount
+    const enableAudio = () => {
+      try {
+        audioEngine.start('pure_silence');
+      } catch {
+        // AudioContext autoplay deferred
+      }
+    };
+
+    window.addEventListener('touchstart', enableAudio, { once: true });
+    window.addEventListener('click', enableAudio, { once: true });
+
+    try {
+      audioEngine.start('pure_silence');
+    } catch {
+      // Safe fallback
+    }
   }, []);
 
   // Update HTML direction and language
