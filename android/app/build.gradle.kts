@@ -52,3 +52,9 @@ dependencies {
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("androidx.lifecycle:lifecycle-service:2.7.0")
 }
+
+try {
+    apply(from = "capacitor.build.gradle")
+} catch (e: Exception) {
+    // Graceful fallback
+}
