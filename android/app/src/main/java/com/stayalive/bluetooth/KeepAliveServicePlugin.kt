@@ -130,10 +130,25 @@ class KeepAliveServicePlugin : Plugin() {
         
         bridge.activity.runOnUiThread {
             when (type) {
-                "impact" -> view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                "success" -> view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                "warning" -> view.performHapticFeedback(HapticFeedbackConstants.REJECT_CONSTANT)
-                else -> view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                "impact" -> {
+                    view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                }
+
+                "success" -> {
+                    view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                }
+
+                "warning" -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        view.performHapticFeedback(HapticFeedbackConstants.REJECT)
+                    } else {
+                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                    }
+                }
+
+                else -> {
+                    view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                }
             }
         }
         call.resolve()

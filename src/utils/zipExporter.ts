@@ -13,60 +13,63 @@ export const ANDROID_PROJECT_FILES: CodeFile[] = [
     path: '.github/workflows/build-apk.yml',
     name: 'build-apk.yml',
     language: 'yaml',
-    description: 'اکشن گیت‌هاب برای بیلد اتوماتیک فایل APK اندروید و ایجاد لینک دانلود',
-    content: `name: Build Android APK (Bluetooth StayAlive)
+    description: 'اکشن گیت‌هاب برای بیلد اتوماتیک فایل APK اندروید با همگام‌سازی کامل Capacitor.',
+    content: `name: Build Android APK (Capacitor)
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ main, master ]
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
-  build:
-    name: Build Debug APK
+  build-apk:
+    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Java JDK 17
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Build Web Application
+        run: npm run build
+
+      - name: Setup Java JDK 21
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
+          distribution: 'zulu'
+          java-version: '21'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Sync Capacitor Android
+        run: npx cap sync android
 
       - name: Grant Execute Permission for Gradlew
-        run: chmod +x gradlew || chmod +x android/gradlew
+        run: chmod +x android/gradlew
 
-      - name: Build Debug APK with Gradle
+      - name: Build Android Debug APK
         run: |
-          if [ -f "gradlew" ]; then
-            ./gradlew assembleDebug --stacktrace
-          else
-            cd android && ./gradlew assembleDebug --stacktrace
-          fi
+          cd android
+          ./gradlew clean assembleDebug --stacktrace
 
-      - name: Find and Upload APK Artifact
+      - name: Upload Android APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BluetoothStayAlive-Debug-APK
-          path: |
-            **/build/outputs/apk/debug/*.apk
-            **/build/outputs/apk/release/*.apk
-          retention-days: 14`,
+          name: Bluetooth-StayAlive-MZ
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7`,
   },
   {
     path: 'app/src/main/java/com/stayalive/bluetooth/KeepAliveService.kt',
     name: 'KeepAliveService.kt',
     language: 'kotlin',
-    description: 'سرویس پس‌زمینه با موتور صوتی "بدون تداخل" (No-Focus Mode) برای حفظ اتصال بلوتوث بدون کاهش صدای موسیقی یا اختلال در تماس.',
+    description: 'سرویس پس‌زمینه نهایی با موتور صوتی "بدون تداخل" (No-Focus) جهت حفظ اتصال بلوتوث بدون تاثیر بر بلندی صدای سایر برنامه‌ها.',
     content: `package com.stayalive.bluetooth
 
 import android.app.*
@@ -83,7 +86,7 @@ class KeepAliveService : Service() {
     companion object {
         const val TAG = "KeepAliveService"
         const val CHANNEL_ID = "bt_stayalive_service_channel_final"
-        const val NOTIFICATION_ID = 8001
+        const val NOTIFICATION_ID = 9001
         const val ACTION_STOP = "com.stayalive.bluetooth.ACTION_STOP"
         @Volatile var isServiceRunning: Boolean = false; private set
     }
@@ -110,7 +113,7 @@ class KeepAliveService : Service() {
     }
 
     private fun promoteToForeground() {
-        val notification = buildNotification("سرویس نگه‌دارنده بلوتوث فعال است")
+        val notification = buildNotification("سرویس نگه‌دارنده بلوتوث در حال اجراست")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
         } else {
@@ -174,7 +177,7 @@ class KeepAliveService : Service() {
     path: 'app/src/main/java/com/stayalive/bluetooth/KeepAliveServicePlugin.kt',
     name: 'KeepAliveServicePlugin.kt',
     language: 'kotlin',
-    description: 'پل ارتباطی نهایی با پشتیبانی از بازخورد لمسی (Haptic Feedback)، اسکن دوگانه و رفع نشت حافظه.',
+    description: 'پل ارتباطی Capacitor با پشتیبانی از بازخورد لمسی (Haptic) و اسکن دوگانه Classic/BLE با رفع خطای ثابت REJECT.',
     content: `package com.stayalive.bluetooth
 
 import android.Manifest
@@ -240,10 +243,16 @@ class KeepAliveServicePlugin : Plugin() {
         val view = bridge.activity.window.decorView
         bridge.activity.runOnUiThread {
             when (type) {
-                "impact" -> view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                "success" -> view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                "warning" -> view.performHapticFeedback(HapticFeedbackConstants.REJECT_CONSTANT)
-                else -> view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                "impact" -> { view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY) }
+                "success" -> { view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS) }
+                "warning" -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        view.performHapticFeedback(HapticFeedbackConstants.REJECT)
+                    } else {
+                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                    }
+                }
+                else -> { view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY) }
             }
         }
         call.resolve()
@@ -346,6 +355,20 @@ class MainActivity : BridgeActivity() {
     </application>
 </manifest>`,
   },
+  {
+    path: 'capacitor.config.json',
+    name: 'capacitor.config.json',
+    language: 'json',
+    description: 'تنظیمات اصلی Capacitor با پکیج‌نام صحیح.',
+    content: `{
+  "appId": "com.stayalive.bluetooth",
+  "appName": "Bluetooth StayAlive",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  }
+}`,
+  }
 ];
 
 export async function generateAndDownloadProjectZip(): Promise<void> {
@@ -370,7 +393,7 @@ export async function generateAndDownloadProjectZip(): Promise<void> {
   const url = URL.createObjectURL(content);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'BluetoothStayAlive-Android-Final-V4.zip';
+  a.download = 'BluetoothStayAlive-Android-Final-V4-Fixed.zip';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
