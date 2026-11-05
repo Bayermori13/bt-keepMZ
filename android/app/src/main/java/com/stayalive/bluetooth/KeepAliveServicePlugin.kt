@@ -2,8 +2,13 @@ package com.stayalive.bluetooth
 
 import android.Manifest
 import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanResult
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
@@ -18,108 +23,132 @@ import com.getcapacitor.annotation.CapacitorPlugin
 @CapacitorPlugin(name = "KeepAliveServicePlugin")
 class KeepAliveServicePlugin : Plugin() {
 
-    companion object {
-        private const val TAG = "KeepAlivePlugin"
+    private var adapter: BluetoothAdapter? = null
+    private var isScanning = false
+    private var isReceiverRegistered = false
+
+    private val classicReceiver = object : BroadcastReceiver() {
+        override fun onReceive(ctx: Context?, intent: Intent?) {
+            when (intent?.action) {
+                BluetoothDevice.ACTION_FOUND -> {
+                    val dev: BluetoothDevice? = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+                    dev?.let { notifyDevice(it, "Classic") }
+                }
+                BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
+                    if (isScanning) {
+                        // If it finishes naturally without stopScan call
+                        checkAndFinalize()
+                    }
+                }
+            }
+        }
+    }
+
+    private val bleCallback = object : ScanCallback() {
+        override fun onScanResult(t: Int, r: ScanResult) {
+            notifyDevice(r.device, "BLE")
+        }
+    }
+
+    override fun load() {
+        adapter = BluetoothAdapter.getDefaultAdapter()
+    }
+
+    private fun notifyDevice(dev: BluetoothDevice, type: String) {
+        val obj = JSObject()
+        obj.put("id", dev.address)
+        obj.put("name", try { dev.name ?: "Unknown Device" } catch (e: SecurityException) { "Protected" })
+        obj.put("macAddress", dev.address)
+        obj.put("type", type)
+        notifyListeners("onDeviceFound", obj)
+    }
+
+    private fun checkAndFinalize() {
+        if (!isScanning) {
+            notifyListeners("onScanStatusChanged", JSObject().put("status", "finished"))
+            cleanupResources()
+        }
+    }
+
+    private fun cleanupResources() {
+        try {
+            if (isReceiverRegistered) {
+                context.unregisterReceiver(classicReceiver)
+                isReceiverRegistered = false
+            }
+            if (adapter?.isDiscovering == true) {
+                adapter!!.cancelDiscovery()
+            }
+            adapter?.bluetoothLeScanner?.stopScan(bleCallback)
+        } catch (e: Exception) {
+            Log.w("Plugin", "Cleanup: ${e.message}")
+        }
     }
 
     @PluginMethod
     fun startService(call: PluginCall) {
-        val ctx = context
-        try {
-            Log.i(TAG, "Request to start KeepAlive foreground service received from bridge.")
-            val intent = Intent(ctx, KeepAliveService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                ctx.startForegroundService(intent)
-            } else {
-                ctx.startService(intent)
-            }
-            val res = JSObject()
-            res.put("success", true)
-            res.put("message", "سرویس پس‌زمینه با موفقیت اجرا شد")
-            call.resolve(res)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to start foreground service: ${e.message}", e)
-            call.reject("Failed to start foreground service: ${e.message}", e)
+        val intent = Intent(context, KeepAliveService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(intent)
+        } else {
+            context.startService(intent)
         }
+        call.resolve(JSObject().put("success", true))
     }
 
     @PluginMethod
     fun stopService(call: PluginCall) {
-        val ctx = context
-        try {
-            Log.i(TAG, "Request to stop KeepAlive foreground service received from bridge.")
-            val intent = Intent(ctx, KeepAliveService::class.java).apply {
-                action = KeepAliveService.ACTION_STOP
-            }
-            ctx.startService(intent)
-            val res = JSObject()
-            res.put("success", true)
-            res.put("message", "سرویس متوقف شد")
-            call.resolve(res)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to stop foreground service: ${e.message}", e)
-            call.reject("Failed to stop foreground service: ${e.message}", e)
-        }
+        context.startService(Intent(context, KeepAliveService::class.java).apply {
+            action = KeepAliveService.ACTION_STOP
+        })
+        call.resolve(JSObject().put("success", true))
     }
 
     @PluginMethod
-    fun isServiceRunning(call: PluginCall) {
-        val res = JSObject()
-        res.put("running", KeepAliveService.isServiceRunning)
-        call.resolve(res)
+    fun checkServiceStatus(call: PluginCall) {
+        call.resolve(JSObject().put("isRunning", KeepAliveService.isServiceRunning))
     }
 
     @PluginMethod
     fun getPairedDevices(call: PluginCall) {
-        val result = JSArray()
-        try {
-            val ctx = context
-
-            // Check Bluetooth Connect permission on Android 12+
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-                    Log.w(TAG, "BLUETOOTH_CONNECT permission not granted when reading bonded devices.")
-                    val ret = JSObject()
-                    ret.put("devices", result)
-                    ret.put("permissionRequired", true)
-                    call.resolve(ret)
-                    return
-                }
-            }
-
-            val bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
-            if (bluetoothAdapter != null && bluetoothAdapter.isEnabled) {
-                val bondedDevices = bluetoothAdapter.bondedDevices
-                if (bondedDevices != null) {
-                    for (device in bondedDevices) {
-                        val item = JSObject()
-                        val devName = try {
-                            device.name ?: "دستگاه بلوتوث"
-                        } catch (e: SecurityException) {
-                            "دستگاه بلوتوث"
-                        }
-                        val devAddr = device.address ?: "00:00:00:00:00:00"
-
-                        item.put("id", devAddr)
-                        item.put("name", devName)
-                        item.put("macAddress", devAddr)
-                        item.put("connected", true)
-                        item.put("batteryLevel", 90)
-                        item.put("rssi", -52)
-                        item.put("lastSeen", "جفت‌شده در بلوتوث گوشی")
-                        item.put("isLocked", true)
-                        result.put(item)
-                    }
-                }
-            }
-
-            val ret = JSObject()
-            ret.put("devices", result)
-            ret.put("permissionRequired", false)
-            call.resolve(ret)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to query bonded bluetooth devices: ${e.message}", e)
-            call.reject("Failed to get bonded bluetooth devices: ${e.message}", e)
+        val arr = JSArray()
+        adapter?.bondedDevices?.forEach {
+            val o = JSObject()
+            o.put("id", it.address)
+            o.put("name", try { it.name ?: "Unknown" } catch (e: SecurityException) { "Unknown" })
+            o.put("macAddress", it.address)
+            arr.put(o)
         }
+        call.resolve(JSObject().put("devices", arr))
+    }
+
+    @PluginMethod
+    fun startScan(call: PluginCall) {
+        if (isScanning) return call.resolve()
+        
+        val filter = IntentFilter(BluetoothDevice.ACTION_FOUND)
+        filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
+        context.registerReceiver(classicReceiver, filter)
+        isReceiverRegistered = true
+
+        adapter?.startDiscovery()
+        adapter?.bluetoothLeScanner?.startScan(bleCallback)
+
+        isScanning = true
+        notifyListeners("onScanStatusChanged", JSObject().put("status", "started"))
+        call.resolve()
+    }
+
+    @PluginMethod
+    fun stopScan(call: PluginCall) {
+        isScanning = false
+        cleanupResources()
+        notifyListeners("onScanStatusChanged", JSObject().put("status", "stopped"))
+        call.resolve()
+    }
+
+    override fun handleOnDestroy() {
+        cleanupResources()
+        super.handleOnDestroy()
     }
 }

@@ -31,6 +31,12 @@ export const DeviceHistory: React.FC<DeviceHistoryProps> = ({
   onAddLog,
 }) => {
   const isFa = language === 'fa';
+  const devicesRef = React.useRef(devices);
+  React.useEffect(() => {
+    devicesRef.current = devices;
+  }, [devices]);
+
+  const [isScanning, setIsScanning] = React.useState(false);
 
   const handleRemoveDevice = (deviceId: string) => {
     const target = devices.find(d => d.id === deviceId);
@@ -56,46 +62,65 @@ export const DeviceHistory: React.FC<DeviceHistoryProps> = ({
     });
   };
 
+  const handleStopScan = async () => {
+    await NativeServiceBridge.stopScan();
+    setIsScanning(false);
+  };
+
   const handleWebBluetoothScan = async () => {
-    // 1. Try real Web Bluetooth API picker
-    const scanned = await BluetoothService.requestWebBluetoothDevice();
-    if (scanned) {
-      const updated = [scanned, ...devices.filter(d => d.id !== scanned.id)];
-      onUpdateDevices(updated);
-      BluetoothService.saveDevices(updated);
-      onSelectActiveDevice(scanned.id);
-      onAddLog({
-        type: 'connect',
-        title: isFa ? 'اتصال مستقیم بلوتوث' : 'Bluetooth Device Connected',
-        detail: isFa ? `دستگاه ${scanned.name} با موفقیت متصل گردید.` : `${scanned.name} connected via Web Bluetooth.`,
-      });
+    if (isScanning) {
+      handleStopScan();
       return;
     }
 
-    // 2. Fetch real paired/bonded bluetooth devices from Android OS system history
-    const nativePaired = await NativeServiceBridge.getPairedDevices();
-    if (nativePaired.length > 0) {
-      const existingIds = new Set(devices.map(d => d.id));
-      const newDevices = nativePaired.filter(d => !existingIds.has(d.id));
-      if (newDevices.length > 0) {
-        const updated = [...newDevices, ...devices];
-        onUpdateDevices(updated);
-        BluetoothService.saveDevices(updated);
-        onSelectActiveDevice(newDevices[0].id);
-        onAddLog({
-          type: 'connect',
-          title: isFa ? 'بارگذاری تاریخچه بلوتوث گوشی' : 'Bluetooth History Loaded',
-          detail: isFa ? `${newDevices.length} دستگاه جفت‌شده از حافظه بلوتوث گوشی بارگذاری شد.` : `Loaded ${newDevices.length} paired devices from phone.`,
-        });
-        return;
-      }
-    }
+    setIsScanning(true);
+    const discoveredIds = new Set(devices.map(d => d.id));
 
-    onAddLog({
-      type: 'disconnect',
-      title: isFa ? 'عدم یافتن دستگاه' : 'No Device Found',
-      detail: isFa ? 'هیچ دستگاه بلوتوث جفت‌شده‌ای در گوشی یافت نشد یا اسکن لغو گردید.' : 'No paired bluetooth devices found.',
+    // Listen for real-time discovered devices
+    const foundListener = NativeServiceBridge.onDeviceFound((scanned) => {
+      const currentDevices = devicesRef.current;
+      const alreadyExists = currentDevices.find((d) => d.id === scanned.id || d.macAddress === scanned.macAddress);
+      if (alreadyExists) return; // Avoid duplicates
+
+      const newDev: BluetoothDeviceInfo = {
+        ...scanned,
+        connected: false,
+        batteryLevel: -1,
+        rssi: -70,
+        lastSeen: isFa ? 'همین الان (شناسایی شد)' : 'Just found',
+        isLocked: true
+      };
+      const updatedList = [newDev, ...currentDevices];
+      BluetoothService.saveDevices(updatedList);
+      onUpdateDevices(updatedList);
     });
+
+    const statusListener = NativeServiceBridge.onScanStatusChanged((status) => {
+      if (status === 'finished' || status === 'stopped') {
+        setIsScanning(false);
+        foundListener.remove();
+        statusListener.remove();
+      }
+    });
+
+    try {
+      await NativeServiceBridge.startScan();
+      
+      // Auto-stop scan after 15 seconds to save battery
+      setTimeout(() => {
+        if (isScanning) handleStopScan();
+      }, 15000);
+
+    } catch (err) {
+      setIsScanning(false);
+      foundListener.remove();
+      statusListener.remove();
+      onAddLog({
+        type: 'disconnect',
+        title: isFa ? 'خطای اسکن' : 'Scan Error',
+        detail: String(err),
+      });
+    }
   };
 
   return (
@@ -118,10 +143,18 @@ export const DeviceHistory: React.FC<DeviceHistoryProps> = ({
 
         <button
           onClick={handleWebBluetoothScan}
-          className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 shrink-0"
+          className={`w-full sm:w-auto px-4 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 shrink-0 ${
+            isScanning 
+              ? 'bg-rose-500 hover:bg-rose-400 text-white animate-pulse' 
+              : 'bg-cyan-500 hover:bg-cyan-400 text-slate-950'
+          }`}
         >
-          <Wifi className="h-4 w-4" />
-          <span>{isFa ? 'اسکن و اتصال دستگاه جدید' : 'Scan & Connect Device'}</span>
+          <Wifi className={`h-4 w-4 ${isScanning ? 'animate-spin' : ''}`} />
+          <span>
+            {isScanning 
+              ? (isFa ? 'توقف جستجو...' : 'Stop Scanning...') 
+              : (isFa ? 'اسکن و اتصال دستگاه جدید' : 'Scan & Connect Device')}
+          </span>
         </button>
       </div>
 

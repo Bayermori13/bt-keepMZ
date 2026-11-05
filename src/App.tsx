@@ -46,14 +46,22 @@ export default function App() {
   // Load real saved devices & saved events on initial mount
   useEffect(() => {
     const initDevices = async () => {
+      // Check real service status from Native side
+      const running = await NativeServiceBridge.isRunning();
+      setIsServiceActive(running);
+
       let loadedDevices = BluetoothService.getSavedDevices();
-      if (loadedDevices.length === 0) {
-        const nativePaired = await NativeServiceBridge.getPairedDevices();
-        if (nativePaired.length > 0) {
-          loadedDevices = nativePaired;
-          BluetoothService.saveDevices(loadedDevices);
-        }
+      const nativePaired = await NativeServiceBridge.getPairedDevices();
+      
+      // Merge saved devices with real paired devices
+      const existingIds = new Set(loadedDevices.map(d => d.id));
+      const newFromNative = nativePaired.filter(d => !existingIds.has(d.id));
+      
+      if (newFromNative.length > 0) {
+        loadedDevices = [...loadedDevices, ...newFromNative];
+        BluetoothService.saveDevices(loadedDevices);
       }
+      
       setDevices(loadedDevices);
       const initialActive = BluetoothService.getActiveDeviceId() || loadedDevices[0]?.id || '';
       setActiveDeviceId(initialActive);
@@ -70,25 +78,19 @@ export default function App() {
       // Storage error
     }
 
-    // Safely attempt audio engine init on user interaction or mount
+    // Safely attempt audio engine init on user interaction
     const enableAudio = () => {
-      try {
-        audioEngine.start('pure_silence');
-        NativeServiceBridge.start();
-      } catch {
-        // AudioContext autoplay deferred
+      if (isServiceActive) {
+        try {
+          audioEngine.start('pure_silence');
+        } catch {
+          // AudioContext autoplay deferred
+        }
       }
     };
 
     window.addEventListener('touchstart', enableAudio, { once: true });
     window.addEventListener('click', enableAudio, { once: true });
-
-    try {
-      audioEngine.start('pure_silence');
-      NativeServiceBridge.start();
-    } catch {
-      // Safe fallback
-    }
   }, []);
 
   // Update HTML direction and language
@@ -103,25 +105,35 @@ export default function App() {
     setLanguage(prev => (prev === 'fa' ? 'en' : 'fa'));
   };
 
-  const handleToggleService = () => {
+  const handleToggleService = async () => {
     if (isServiceActive) {
       audioEngine.stop();
-      NativeServiceBridge.stop();
-      setIsServiceActive(false);
-      handleAddLog({
-        type: 'keepalive',
-        title: isFa ? 'سرویس سکوت متوقف شد' : 'Keep-Alive Stopped',
-        detail: isFa ? 'استریم صوتی پس‌زمینه خاموش شد.' : 'Background stream stopped.',
-      });
+      const success = await NativeServiceBridge.stop();
+      if (success) {
+        setIsServiceActive(false);
+        handleAddLog({
+          type: 'keepalive',
+          title: isFa ? 'سرویس متوقف شد' : 'Service Stopped',
+          detail: isFa ? 'سرویس پس‌زمینه و نوتیفیکیشن غیرفعال شدند.' : 'Foreground service and notification removed.',
+        });
+      }
     } else {
-      audioEngine.start('pure_silence');
-      NativeServiceBridge.start();
-      setIsServiceActive(true);
-      handleAddLog({
-        type: 'keepalive',
-        title: isFa ? 'سرویس سکوت فعال شد' : 'Keep-Alive Started',
-        detail: isFa ? 'پخش بافر PCM 0dB برای بیدار نگه‌داشتن هندزفری فعال است.' : 'Continuous zero PCM active.',
-      });
+      const success = await NativeServiceBridge.start();
+      if (success) {
+        audioEngine.start('pure_silence');
+        setIsServiceActive(true);
+        handleAddLog({
+          type: 'keepalive',
+          title: isFa ? 'سرویس فعال شد' : 'Service Started',
+          detail: isFa ? 'سرویس پس‌زمینه با نوتیفیکیشن ثابت اجرا شد.' : 'Foreground service active with persistent notification.',
+        });
+      } else {
+        handleAddLog({
+          type: 'disconnect',
+          title: isFa ? 'خطا در اجرا' : 'Start Error',
+          detail: isFa ? 'سرویس پس‌زمینه اجرا نشد. مجوزها را چک کنید.' : 'Failed to start native service. Check permissions.',
+        });
+      }
     }
   };
 

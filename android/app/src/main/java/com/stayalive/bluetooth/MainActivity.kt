@@ -14,100 +14,59 @@ class MainActivity : BridgeActivity() {
 
     companion object {
         private const val TAG = "MainActivity"
-        private const val PERMISSION_REQUEST_CODE = 1002
+        private const val PERMISSION_REQUEST_CODE = 1005
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         registerPlugin(KeepAliveServicePlugin::class.java)
-
-        Log.i(TAG, "MainActivity launched. Checking Bluetooth and Notification runtime permissions...")
-        checkAndRequestPermissions()
+        
+        requestNecessaryPermissions()
     }
 
     /**
-     * Checks and requests runtime permissions required for:
-     * - Bluetooth scanning & connecting (Android 12+)
-     * - Location for Bluetooth discovery (Android 6.0+)
-     * - Foreground Service Notifications (Android 13+)
+     * Handles version-specific permission logic:
+     * - Android 12+ (API 31+): Requires BLUETOOTH_SCAN, BLUETOOTH_CONNECT.
+     * - Android 13+ (API 33+): Requires POST_NOTIFICATIONS.
+     * - All: Requires FINE/COARSE LOCATION for Bluetooth scanning on many devices.
      */
-    private fun checkAndRequestPermissions() {
-        val permissionsToRequest = mutableListOf<String>()
+    private fun requestNecessaryPermissions() {
+        val permissions = mutableListOf<String>()
 
-        // 1. Notification Permission for Android 13+ (API 33+)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) 
-                != PackageManager.PERMISSION_GRANTED) {
-                permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
-            }
-        }
+        // 1. Location (Core for discovery on all relevant Android versions)
+        permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        permissions.add(Manifest.permission.ACCESS_COARSE_LOCATION)
 
-        // 2. Bluetooth Connect & Scan for Android 12+ (API 31+)
+        // 2. Android 12 Bluetooth Permissions
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) 
-                != PackageManager.PERMISSION_GRANTED) {
-                permissionsToRequest.add(Manifest.permission.BLUETOOTH_CONNECT)
-            }
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) 
-                != PackageManager.PERMISSION_GRANTED) {
-                permissionsToRequest.add(Manifest.permission.BLUETOOTH_SCAN)
-            }
+            permissions.add(Manifest.permission.BLUETOOTH_SCAN)
+            permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
         }
 
-        // 3. Location Permissions for Bluetooth discovery
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) 
-            != PackageManager.PERMISSION_GRANTED) {
-            permissionsToRequest.add(Manifest.permission.ACCESS_FINE_LOCATION)
-        }
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) 
-            != PackageManager.PERMISSION_GRANTED) {
-            permissionsToRequest.add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        // 3. Android 13 Notification Permission
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
 
-        if (permissionsToRequest.isNotEmpty()) {
-            Log.w(TAG, "Requesting missing permissions: $permissionsToRequest")
-            ActivityCompat.requestPermissions(
-                this,
-                permissionsToRequest.toTypedArray(),
-                PERMISSION_REQUEST_CODE
-            )
-        } else {
-            Log.i(TAG, "All essential Bluetooth & Notification permissions are already granted.")
+        val missing = permissions.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+
+        if (missing.isNotEmpty()) {
+            Log.i(TAG, "Requesting missing permissions: $missing")
+            ActivityCompat.requestPermissions(this, missing.toTypedArray(), PERMISSION_REQUEST_CODE)
         }
     }
 
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == PERMISSION_REQUEST_CODE) {
-            var allGranted = true
-            for (i in permissions.indices) {
-                val permissionName = permissions[i]
-                val isGranted = grantResults.getOrNull(i) == PackageManager.PERMISSION_GRANTED
-                if (isGranted) {
-                    Log.i(TAG, "Permission granted: $permissionName")
-                } else {
-                    Log.e(TAG, "Permission DENIED by user: $permissionName")
-                    allGranted = false
-                }
-            }
-
-            if (!allGranted) {
-                Toast.makeText(
-                    this,
-                    "مجوزهای بلوتوث و اعلان برای فعالیت دائمی برنامه در پس‌زمینه الزامی هستند.",
-                    Toast.LENGTH_LONG
-                ).show()
+            val deniedCount = grantResults.count { it != PackageManager.PERMISSION_GRANTED }
+            if (deniedCount > 0) {
+                Log.w(TAG, "$deniedCount permissions were denied by the user.")
+                Toast.makeText(this, "برخی مجوزها رد شدند؛ اسکن و نوتیفیکیشن ممکن است با اختلال روبرو شوند.", Toast.LENGTH_LONG).show()
             } else {
-                Log.i(TAG, "All required runtime permissions granted successfully.")
-                Toast.makeText(
-                    this,
-                    "مجوزهای بلوتوث و اعلان با موفقیت تایید شدند.",
-                    Toast.LENGTH_SHORT
-                ).show()
+                Log.i(TAG, "All requested permissions granted.")
             }
         }
     }
