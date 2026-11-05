@@ -239,8 +239,11 @@ export default function App() {
       >
         <div className="grid grid-cols-4 items-center">
           <button
-            onClick={() => setActiveSection('controller')}
-            className={`flex flex-col items-center justify-center py-1.5 transition-colors ${
+            onClick={() => {
+              NativeServiceBridge.haptic('impact');
+              setActiveSection('controller');
+            }}
+            className={`flex flex-col items-center justify-center py-1.5 transition-all active:scale-75 ${
               activeSection === 'controller' ? 'text-cyan-400 font-bold' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -249,8 +252,11 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => setActiveSection('device')}
-            className={`flex flex-col items-center justify-center py-1.5 transition-colors ${
+            onClick={() => {
+              NativeServiceBridge.haptic('impact');
+              setActiveSection('device');
+            }}
+            className={`flex flex-col items-center justify-center py-1.5 transition-all active:scale-75 ${
               activeSection === 'device' ? 'text-cyan-400 font-bold' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -259,8 +265,11 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => setActiveSection('history')}
-            className={`flex flex-col items-center justify-center py-1.5 transition-colors ${
+            onClick={() => {
+              NativeServiceBridge.haptic('impact');
+              setActiveSection('history');
+            }}
+            className={`flex flex-col items-center justify-center py-1.5 transition-all active:scale-75 ${
               activeSection === 'history' ? 'text-cyan-400 font-bold' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -269,8 +278,11 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => setActiveSection('logs')}
-            className={`flex flex-col items-center justify-center py-1.5 transition-colors ${
+            onClick={() => {
+              NativeServiceBridge.haptic('impact');
+              setActiveSection('logs');
+            }}
+            className={`flex flex-col items-center justify-center py-1.5 transition-all active:scale-75 ${
               activeSection === 'logs' ? 'text-cyan-400 font-bold' : 'text-slate-400 hover:text-slate-200'
             }`}
           >

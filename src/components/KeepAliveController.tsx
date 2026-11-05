@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { KeepAliveMode, Language, ActivityEvent } from '../types';
 import { audioEngine } from '../utils/audioEngine';
+import { NativeServiceBridge } from '../utils/nativeServiceBridge';
 
 interface KeepAliveControllerProps {
   language: Language;
@@ -114,16 +115,19 @@ export const KeepAliveController: React.FC<KeepAliveControllerProps> = ({
         <div className="lg:col-span-7 rounded-2xl border border-slate-800 bg-slate-900/60 p-5 flex flex-col justify-between space-y-5">
           <div className="flex flex-col items-center justify-center py-4">
             <button
-              onClick={onToggleActive}
-              className={`relative flex h-32 w-32 sm:h-36 sm:w-36 items-center justify-center rounded-full transition-all duration-300 active:scale-95 shadow-xl ${
+              onClick={() => {
+                NativeServiceBridge.haptic(isActive ? 'impact' : 'success');
+                onToggleActive();
+              }}
+              className={`relative flex h-32 w-32 sm:h-36 sm:w-36 items-center justify-center rounded-full transition-all duration-300 active:scale-90 shadow-xl ${
                 isActive
                   ? 'bg-gradient-to-tr from-cyan-500 to-emerald-400 text-slate-950 shadow-cyan-500/30 ring-4 ring-cyan-500/20'
                   : 'bg-slate-800 hover:bg-slate-750 text-slate-400 border border-slate-700'
               }`}
               aria-label={isActive ? 'خاموش' : 'روشن'}
             >
-              <div className="flex flex-col items-center">
-                <Power className={`h-12 w-12 transition-transform ${isActive ? 'scale-105 text-slate-950' : 'text-slate-400'}`} />
+              <div className="flex flex-col items-center pointer-events-none">
+                <Power className={`h-12 w-12 transition-transform duration-300 ${isActive ? 'scale-110 text-slate-950' : 'text-slate-400'}`} />
                 <span className="mt-1 text-xs font-bold tracking-tight">
                   {isActive
                     ? isFa ? 'فعال' : 'ON'

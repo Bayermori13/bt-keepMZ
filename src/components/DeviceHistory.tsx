@@ -142,8 +142,11 @@ export const DeviceHistory: React.FC<DeviceHistoryProps> = ({
         </div>
 
         <button
-          onClick={handleWebBluetoothScan}
-          className={`w-full sm:w-auto px-4 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 shrink-0 ${
+          onClick={() => {
+            NativeServiceBridge.haptic('impact');
+            handleWebBluetoothScan();
+          }}
+          className={`w-full sm:w-auto px-4 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-90 shrink-0 ${
             isScanning 
               ? 'bg-rose-500 hover:bg-rose-400 text-white animate-pulse' 
               : 'bg-cyan-500 hover:bg-cyan-400 text-slate-950'
@@ -172,7 +175,10 @@ export const DeviceHistory: React.FC<DeviceHistoryProps> = ({
 
         {devices.length > 0 && (
           <button
-            onClick={handleClearAll}
+            onClick={() => {
+              NativeServiceBridge.haptic('warning');
+              handleClearAll();
+            }}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-500/30 bg-rose-950/30 hover:bg-rose-900/50 text-rose-300 hover:text-rose-100 text-xs font-bold transition-all shrink-0 whitespace-nowrap active:scale-95 shadow-sm"
           >
             <Trash2 className="h-3.5 w-3.5 text-rose-400" />
@@ -241,7 +247,10 @@ export const DeviceHistory: React.FC<DeviceHistoryProps> = ({
                   </div>
 
                   <button
-                    onClick={() => handleRemoveDevice(device.id)}
+                    onClick={() => {
+                      NativeServiceBridge.haptic('warning');
+                      handleRemoveDevice(device.id);
+                    }}
                     className="p-2 rounded-xl text-slate-400 hover:text-rose-400 bg-slate-900/80 hover:bg-rose-950/40 border border-slate-800 hover:border-rose-500/30 transition-colors shrink-0"
                     title={isFa ? 'حذف' : 'Remove'}
                   >
@@ -268,8 +277,11 @@ export const DeviceHistory: React.FC<DeviceHistoryProps> = ({
 
                   {!isActive ? (
                     <button
-                      onClick={() => onSelectActiveDevice(device.id)}
-                      className="w-full sm:w-auto px-3.5 py-1.5 rounded-xl text-xs font-bold bg-cyan-500/15 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/30 transition-colors shadow-sm shrink-0 flex items-center justify-center gap-1.5 mt-1 sm:mt-0"
+                      onClick={() => {
+                        NativeServiceBridge.haptic('success');
+                        onSelectActiveDevice(device.id);
+                      }}
+                      className="w-full sm:w-auto px-3.5 py-1.5 rounded-xl text-xs font-bold bg-cyan-500/15 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/30 transition-colors shadow-sm shrink-0 flex items-center justify-center gap-1.5 mt-1 sm:mt-0 active:scale-95"
                     >
                       <CheckCircle2 className="h-3.5 w-3.5" />
                       <span>{isFa ? 'انتخاب دستگاه' : 'Select Device'}</span>

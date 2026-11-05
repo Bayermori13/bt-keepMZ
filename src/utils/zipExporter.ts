@@ -66,7 +66,7 @@ jobs:
     path: 'app/src/main/java/com/stayalive/bluetooth/KeepAliveService.kt',
     name: 'KeepAliveService.kt',
     language: 'kotlin',
-    description: 'سرویس نهایی با موتور صوتی "بدون تداخل" (No-Focus Mode) برای حفظ اتصال بلوتوث بدون تاثیر بر بلندی صدای سایر برنامه‌ها.',
+    description: 'سرویس پس‌زمینه با موتور صوتی "بدون تداخل" (No-Focus Mode) برای حفظ اتصال بلوتوث بدون کاهش صدای موسیقی یا اختلال در تماس.',
     content: `package com.stayalive.bluetooth
 
 import android.app.*
@@ -83,7 +83,7 @@ class KeepAliveService : Service() {
     companion object {
         const val TAG = "KeepAliveService"
         const val CHANNEL_ID = "bt_stayalive_service_channel_final"
-        const val NOTIFICATION_ID = 9001
+        const val NOTIFICATION_ID = 8001
         const val ACTION_STOP = "com.stayalive.bluetooth.ACTION_STOP"
         @Volatile var isServiceRunning: Boolean = false; private set
     }
@@ -110,7 +110,7 @@ class KeepAliveService : Service() {
     }
 
     private fun promoteToForeground() {
-        val notification = buildNotification("سرویس نگه‌دارنده بلوتوث در حال اجراست")
+        val notification = buildNotification("سرویس نگه‌دارنده بلوتوث فعال است")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
         } else {
@@ -174,7 +174,7 @@ class KeepAliveService : Service() {
     path: 'app/src/main/java/com/stayalive/bluetooth/KeepAliveServicePlugin.kt',
     name: 'KeepAliveServicePlugin.kt',
     language: 'kotlin',
-    description: 'پلاگین نهایی با اسکن همزمان Classic و BLE، رفع نشت حافظه و آزادسازی کامل رادیو بلوتوث.',
+    description: 'پل ارتباطی نهایی با پشتیبانی از بازخورد لمسی (Haptic Feedback)، اسکن دوگانه و رفع نشت حافظه.',
     content: `package com.stayalive.bluetooth
 
 import android.Manifest
@@ -182,6 +182,8 @@ import android.bluetooth.*
 import android.bluetooth.le.*
 import android.content.*
 import android.os.*
+import android.util.Log
+import android.view.HapticFeedbackConstants
 import com.getcapacitor.*
 import com.getcapacitor.annotation.*
 
@@ -222,8 +224,7 @@ class KeepAliveServicePlugin : Plugin() {
     }
 
     @PluginMethod fun startService(call: PluginCall) {
-        val intent = Intent(context, KeepAliveService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent) else context.startService(intent)
+        context.startForegroundService(Intent(context, KeepAliveService::class.java))
         call.resolve(JSObject().put("success", true))
     }
 
@@ -233,6 +234,20 @@ class KeepAliveServicePlugin : Plugin() {
     }
 
     @PluginMethod fun checkServiceStatus(call: PluginCall) { call.resolve(JSObject().put("isRunning", KeepAliveService.isServiceRunning)) }
+
+    @PluginMethod fun triggerHaptic(call: PluginCall) {
+        val type = call.getString("type") ?: "impact"
+        val view = bridge.activity.window.decorView
+        bridge.activity.runOnUiThread {
+            when (type) {
+                "impact" -> view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                "success" -> view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                "warning" -> view.performHapticFeedback(HapticFeedbackConstants.REJECT_CONSTANT)
+                else -> view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            }
+        }
+        call.resolve()
+    }
 
     @PluginMethod fun getPairedDevices(call: PluginCall) {
         val arr = JSArray()
@@ -262,7 +277,7 @@ class KeepAliveServicePlugin : Plugin() {
     path: 'app/src/main/java/com/stayalive/bluetooth/MainActivity.kt',
     name: 'MainActivity.kt',
     language: 'kotlin',
-    description: 'اکتیویتی اصلی با مدیریت هوشمند مجوزها.',
+    description: 'اکتیویتی اصلی با ثبت دستی پلاگین برای تضمین اتصال Capacitor به بخش Native.',
     content: `package com.stayalive.bluetooth
 
 import android.Manifest
@@ -300,7 +315,7 @@ class MainActivity : BridgeActivity() {
     path: 'app/src/main/AndroidManifest.xml',
     name: 'AndroidManifest.xml',
     language: 'xml',
-    description: 'مانیفست نهایی برنامه.',
+    description: 'مانیفست نهایی برنامه با تنظیمات صحیح پکیج.',
     content: `<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.stayalive.bluetooth">
@@ -355,7 +370,7 @@ export async function generateAndDownloadProjectZip(): Promise<void> {
   const url = URL.createObjectURL(content);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'BluetoothStayAlive-Android-Final.zip';
+  a.download = 'BluetoothStayAlive-Android-Final-V4.zip';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
