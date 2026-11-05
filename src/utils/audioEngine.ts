@@ -211,6 +211,17 @@ class WebAudioEngine {
   public getContextState(): string {
     return this.ctx?.state || 'idle';
   }
+
+  public getAudioSpecs() {
+    if (!this.ctx) {
+      return { sampleRate: 0, state: 'STOPPED', type: 'None' };
+    }
+    return {
+      sampleRate: this.ctx.sampleRate, // Actual hardware sample rate
+      state: this.ctx.state.toUpperCase(), // Actual state: RUNNING or SUSPENDED
+      type: this.currentMode
+    };
+  }
 }
 
 export const audioEngine = new WebAudioEngine();

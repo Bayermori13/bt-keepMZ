@@ -11,6 +11,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioManager
@@ -19,31 +20,54 @@ import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import java.util.concurrent.atomic.AtomicBoolean
 
 class KeepAliveService : Service(), AudioManager.OnAudioFocusChangeListener {
 
+    companion object {
+        const val TAG = "KeepAliveService"
+        const val CHANNEL_ID = "bt_stayalive_foreground_channel"
+        const val NOTIFICATION_ID = 2001
+
+        const val ACTION_STOP = "com.stayalive.bluetooth.ACTION_STOP"
+        const val ACTION_STATUS_CHANGED = "com.stayalive.bluetooth.STATUS_CHANGED"
+        const val ACTION_FOCUS_CHANGED = "com.stayalive.bluetooth.FOCUS_CHANGED"
+        const val ACTION_DEVICE_UPDATED = "com.stayalive.bluetooth.DEVICE_UPDATED"
+
+        const val EXTRA_IS_ACTIVE = "extra_is_active"
+        const val EXTRA_FOCUS_STATE = "extra_focus_state"
+        const val EXTRA_DEV_NAME = "extra_dev_name"
+        const val EXTRA_DEV_ADDR = "extra_dev_addr"
+        const val EXTRA_DEV_BATTERY = "extra_dev_battery"
+        const val EXTRA_DEV_CONNECTED = "extra_dev_connected"
+
+        @Volatile
+        var isServiceRunning: Boolean = false
+            private set
+    }
+
     private val binder = LocalBinder()
     private var audioTrack: AudioTrack? = null
     private var audioManager: AudioManager? = null
     private var wakeLock: PowerManager.WakeLock? = null
-    private var isPlaying = AtomicBoolean(false)
+    private val isPlaying = AtomicBoolean(false)
     private var keepAliveThread: Thread? = null
 
-    // Configuration
+    // Service Configuration
     var mode: KeepAliveMode = KeepAliveMode.PURE_SILENCE
     var intervalSeconds: Int = 0 // 0 = continuous stream, >0 = periodic burst
     var isMutedByFocus: Boolean = false
 
     // Device telemetry
-    var currentDeviceName: String = "No Device Connected"
-    var currentDeviceAddress: String = "00:00:00:00:00:00"
+    var currentDeviceName: String = "در انتظار اتصال دستگاه"
+    var currentDeviceAddress: String = ""
     var currentDeviceBattery: Int = -1 // -1 = unknown
     var isDeviceConnected: Boolean = false
 
     enum class KeepAliveMode {
-        PURE_SILENCE,       // Pure 0 PCM silence
+        PURE_SILENCE,       // Pure 0 PCM digital silence
         INAUDIBLE_SUB_BASS, // 15 Hz inaudible sine wave (prevents aggressive DAC sleep)
         PERIODIC_PING       // Micro-burst every X seconds
     }
@@ -56,9 +80,17 @@ class KeepAliveService : Service(), AudioManager.OnAudioFocusChangeListener {
 
     override fun onCreate() {
         super.onCreate()
+        Log.i(TAG, "KeepAliveService onCreate started.")
+
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+
+        // 1. Create Notification Channel immediately
         createNotificationChannel()
 
+        // 2. Start Foreground immediately in onCreate to satisfy Android OS 8+ requirement
+        promoteToForeground("سرویس زنده نگه‌داشتن بلوتوث فعال است (استریم پیوسته سکوت)")
+
+        // 3. Acquire Partial WakeLock to keep CPU running when screen turns off
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "BluetoothStayAlive::WakeLock").apply {
             setReferenceCounted(false)
@@ -69,25 +101,130 @@ class KeepAliveService : Service(), AudioManager.OnAudioFocusChangeListener {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.i(TAG, "KeepAliveService onStartCommand invoked. action=${intent?.action}")
+
         val action = intent?.action
         if (action == ACTION_STOP) {
+            Log.i(TAG, "KeepAliveService received ACTION_STOP. Terminating service...")
             stopKeepAlive()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } else {
+                @Suppress("DEPRECATION")
+                stopForeground(true)
+            }
             stopSelf()
             return START_NOT_STICKY
         }
 
-        startForeground(NOTIFICATION_ID, buildNotification("سرویس زنده نگه‌داشتن بلوتوث فعال است"))
+        // Ensure foreground notification remains persistent and updated
+        promoteToForeground(
+            if (isDeviceConnected) "متصل به: $currentDeviceName (پخش سکوت فعال)"
+            else "سرویس زنده نگه‌داشتن بلوتوث فعال است (استریم پیوسته)"
+        )
+
         startKeepAlive()
 
         return START_STICKY
     }
 
+    /**
+     * Promotes this service to Android Foreground Service status with a non-dismissible notification.
+     */
+    private fun promoteToForeground(contentText: String) {
+        val notification = buildNotification(contentText)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+            isServiceRunning = true
+            Log.i(TAG, "Successfully bound to FOREGROUND with non-dismissible notification.")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error starting foreground service: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Creates the Android 8.0+ (Oreo) Notification Channel
+     */
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val existing = manager.getNotificationChannel(CHANNEL_ID)
+            if (existing == null) {
+                val channel = NotificationChannel(
+                    CHANNEL_ID,
+                    "سرویس زنده نگه‌داشتن بلوتوث MZ",
+                    NotificationManager.IMPORTANCE_LOW
+                ).apply {
+                    description = "جلوگیری از قطع خودکار یا خاموش شدن هندزفری‌های بلوتوث با ارسال سکوت دیجیتال"
+                    setShowBadge(false)
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                }
+                manager.createNotificationChannel(channel)
+                Log.i(TAG, "NotificationChannel created: $CHANNEL_ID")
+            }
+        }
+    }
+
+    /**
+     * Builds the persistent, non-dismissible Foreground Notification
+     */
+    private fun buildNotification(contentText: String): Notification {
+        val openIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0, openIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        val stopIntent = Intent(this, KeepAliveService::class.java).apply {
+            action = ACTION_STOP
+        }
+        val stopPendingIntent = PendingIntent.getService(
+            this, 1, stopIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("MZ Bluetooth Keeper")
+            .setContentText(contentText)
+            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+            .setContentIntent(pendingIntent)
+            .addAction(android.R.drawable.ic_media_pause, "توقف سرویس", stopPendingIntent)
+            .setOngoing(true) // Cannot be dismissed by swiping away
+            .setAutoCancel(false)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+    }
+
+    private fun updateNotification(text: String) {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.notify(NOTIFICATION_ID, buildNotification(text))
+    }
+
+    /**
+     * Initializes AudioTrack and streams silent 16-bit PCM samples to prevent the Bluetooth DAC from sleeping.
+     */
     private fun startKeepAlive() {
-        if (isPlaying.get()) return
+        if (isPlaying.get()) {
+            Log.i(TAG, "startKeepAlive called but audio stream is already running.")
+            return
+        }
+
         wakeLock?.acquire(24 * 60 * 60 * 1000L) // 24 hours max
         isPlaying.set(true)
+        isServiceRunning = true
 
-        // Request transient audio focus that allows ducking so other media / calls take 100% priority
         requestSmartAudioFocus()
 
         keepAliveThread = Thread {
@@ -97,6 +234,8 @@ class KeepAliveService : Service(), AudioManager.OnAudioFocusChangeListener {
                 AudioFormat.CHANNEL_OUT_MONO,
                 AudioFormat.ENCODING_PCM_16BIT
             ).coerceAtLeast(4096)
+
+            Log.i(TAG, "AudioTrack configuration: sampleRate=$sampleRate, bufferSize=$bufferSize bytes")
 
             val audioAttributes = AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -116,25 +255,38 @@ class KeepAliveService : Service(), AudioManager.OnAudioFocusChangeListener {
                 .setTransferMode(AudioTrack.MODE_STREAM)
                 .build()
 
-            audioTrack?.play()
+            try {
+                audioTrack?.play()
+                Log.i(TAG, "AudioTrack playback started successfully. Continuous silent stream is active.")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start AudioTrack playback", e)
+            }
 
-            val zeroBuffer = ShortArray(bufferSize / 2)
+            val zeroBuffer = ShortArray(bufferSize / 2) // Pure zeros (digital silence)
             val subBassBuffer = ShortArray(bufferSize / 2) { i ->
-                // 15 Hz inaudible tone with very gentle amplitude
+                // 15 Hz inaudible sine wave
                 val angle = 2.0 * Math.PI * i * 15.0 / sampleRate
                 (Math.sin(angle) * 120.0).toInt().toShort()
             }
 
+            var pulseCounter = 0L
             while (isPlaying.get()) {
-                // Non-Stop Continuous Stream: Never pauses, even during calls or music.
-                // Digital zero PCM mixes seamlessly in Android AudioFlinger with 0% distortion or quality loss.
                 val bufferToWrite = when (mode) {
                     KeepAliveMode.PURE_SILENCE -> zeroBuffer
                     KeepAliveMode.INAUDIBLE_SUB_BASS -> subBassBuffer
                     KeepAliveMode.PERIODIC_PING -> zeroBuffer
                 }
 
-                audioTrack?.write(bufferToWrite, 0, bufferToWrite.size)
+                val written = audioTrack?.write(bufferToWrite, 0, bufferToWrite.size) ?: 0
+                pulseCounter++
+
+                // Explicit log every ~100 writes (approx every 5-10 seconds) for Logcat inspection
+                if (pulseCounter % 100L == 1L) {
+                    Log.d(
+                        TAG,
+                        "KeepAlive silent pulse active: wrote $written shorts (mode=$mode, pulsesSent=$pulseCounter). Bluetooth A2DP audio link kept alive."
+                    )
+                }
 
                 if (mode == KeepAliveMode.PERIODIC_PING && intervalSeconds > 0) {
                     Thread.sleep(intervalSeconds * 1000L)
@@ -144,17 +296,23 @@ class KeepAliveService : Service(), AudioManager.OnAudioFocusChangeListener {
             try {
                 audioTrack?.stop()
                 audioTrack?.release()
+                Log.i(TAG, "AudioTrack stopped and released.")
             } catch (e: Exception) {
-                // Track already stopped
+                Log.w(TAG, "Exception during AudioTrack cleanup", e)
             }
             audioTrack = null
-        }.also { it.start() }
+        }.apply {
+            name = "KeepAlive-AudioTrack-Thread"
+            start()
+        }
 
         broadcastStatusChange(true)
     }
 
     private fun stopKeepAlive() {
+        Log.i(TAG, "Stopping KeepAlive audio stream...")
         isPlaying.set(false)
+        isServiceRunning = false
         keepAliveThread?.interrupt()
         keepAliveThread = null
 
@@ -176,23 +334,16 @@ class KeepAliveService : Service(), AudioManager.OnAudioFocusChangeListener {
         )
     }
 
-    /**
-     * Smart Audio Focus Listener:
-     * When a phone call arrives or music plays:
-     *   -> Silence NEVER stops! It continues streaming pure zeros concurrently in the background.
-     * When the call or music finishes:
-     *   -> We immediately broadcast that the headset attempted sleep timeout and was prevented!
-     */
     override fun onAudioFocusChange(focusChange: Int) {
         when (focusChange) {
             AudioManager.AUDIOFOCUS_LOSS,
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                // Call or music active - keep streaming zero PCM concurrently without interference
+                Log.d(TAG, "Audio focus transient ducking: call or music active, stream continues concurrently.")
                 broadcastFocusChange("CONCURRENT_STREAM_ACTIVE")
             }
             AudioManager.AUDIOFOCUS_GAIN -> {
-                // Call or music ended - headset attempted to sleep, silence stream saved it!
+                Log.i(TAG, "Audio focus returned: prevented headset auto-sleep timeout!")
                 broadcastFocusChange("PREVENTED_DISCONNECT_HEADSET_SAVED")
             }
         }
@@ -204,20 +355,23 @@ class KeepAliveService : Service(), AudioManager.OnAudioFocusChangeListener {
                 BluetoothDevice.ACTION_ACL_CONNECTED -> {
                     val device: BluetoothDevice? = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
                     device?.let {
-                        currentDeviceName = it.name ?: "Bluetooth Headset"
-                        currentDeviceAddress = it.address ?: "00:00:00:00:00:00"
+                        currentDeviceName = try { it.name ?: "هندزفری بلوتوث" } catch (e: SecurityException) { "هندزفری بلوتوث" }
+                        currentDeviceAddress = it.address ?: ""
                         isDeviceConnected = true
-                        updateNotification("متصل به: $currentDeviceName")
+                        Log.i(TAG, "Bluetooth device connected: $currentDeviceName ($currentDeviceAddress)")
+                        updateNotification("متصل به: $currentDeviceName (پخش سکوت فعال)")
                         broadcastDeviceUpdate()
                     }
                 }
                 BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
                     isDeviceConnected = false
+                    Log.i(TAG, "Bluetooth device disconnected. Waiting for reconnection...")
                     updateNotification("دستگاه قطع شد - در انتظار اتصال مجدد")
                     broadcastDeviceUpdate()
                 }
                 "android.bluetooth.device.action.BATTERY_LEVEL_CHANGED" -> {
                     currentDeviceBattery = intent.getIntExtra("android.bluetooth.device.extra.BATTERY_LEVEL", -1)
+                    Log.d(TAG, "Device battery level updated: $currentDeviceBattery%")
                     broadcastDeviceUpdate()
                 }
             }
@@ -235,63 +389,23 @@ class KeepAliveService : Service(), AudioManager.OnAudioFocusChangeListener {
     }
 
     private fun checkInitialBluetoothStatus() {
-        val adapter = BluetoothAdapter.getDefaultAdapter()
-        if (adapter != null && adapter.isEnabled) {
-            val bonded = adapter.bondedDevices
-            for (dev in bonded) {
-                // Check if device is connected
-                currentDeviceName = dev.name ?: "Unknown Headset"
-                currentDeviceAddress = dev.address ?: ""
-                isDeviceConnected = true
-                break
+        try {
+            val adapter = BluetoothAdapter.getDefaultAdapter()
+            if (adapter != null && adapter.isEnabled) {
+                val bonded = adapter.bondedDevices
+                if (bonded != null) {
+                    for (dev in bonded) {
+                        currentDeviceName = dev.name ?: "هندزفری بلوتوث"
+                        currentDeviceAddress = dev.address ?: ""
+                        isDeviceConnected = true
+                        Log.i(TAG, "Initial bonded device identified: $currentDeviceName ($currentDeviceAddress)")
+                        break
+                    }
+                }
             }
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Bluetooth permission not yet granted during initial check: ${e.message}")
         }
-    }
-
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "MZ Bluetooth Keeper Service",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "جلوگیری از خاموش شدن یا قطع خودکار هندزفری بلوتوث"
-                setShowBadge(false)
-            }
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
-        }
-    }
-
-    private fun buildNotification(contentText: String): Notification {
-        val openIntent = Intent(this, MainActivity::class.java)
-        val pendingIntent = PendingIntent.getActivity(
-            this, 0, openIntent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-
-        val stopIntent = Intent(this, KeepAliveService::class.java).apply {
-            action = ACTION_STOP
-        }
-        val stopPendingIntent = PendingIntent.getService(
-            this, 1, stopIntent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("MZ Bluetooth Keeper")
-            .setContentText(contentText)
-            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
-            .setContentIntent(pendingIntent)
-            .addAction(android.R.drawable.ic_media_pause, "توقف سرویس", stopPendingIntent)
-            .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
-    }
-
-    private fun updateNotification(text: String) {
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(NOTIFICATION_ID, buildNotification(text))
     }
 
     private fun broadcastStatusChange(active: Boolean) {
@@ -319,28 +433,13 @@ class KeepAliveService : Service(), AudioManager.OnAudioFocusChangeListener {
     }
 
     override fun onDestroy() {
+        Log.i(TAG, "KeepAliveService onDestroy invoked.")
         stopKeepAlive()
         try {
             unregisterReceiver(bluetoothReceiver)
         } catch (e: Exception) {
-            // Unregistered
+            // Already unregistered
         }
         super.onDestroy()
-    }
-
-    companion object {
-        const val CHANNEL_ID = "bt_stayalive_channel"
-        const val NOTIFICATION_ID = 1001
-        const val ACTION_STOP = "com.stayalive.bluetooth.ACTION_STOP"
-        const val ACTION_STATUS_CHANGED = "com.stayalive.bluetooth.STATUS_CHANGED"
-        const val ACTION_FOCUS_CHANGED = "com.stayalive.bluetooth.FOCUS_CHANGED"
-        const val ACTION_DEVICE_UPDATED = "com.stayalive.bluetooth.DEVICE_UPDATED"
-
-        const val EXTRA_IS_ACTIVE = "extra_is_active"
-        const val EXTRA_FOCUS_STATE = "extra_focus_state"
-        const val EXTRA_DEV_NAME = "extra_dev_name"
-        const val EXTRA_DEV_ADDR = "extra_dev_addr"
-        const val EXTRA_DEV_BATTERY = "extra_dev_battery"
-        const val EXTRA_DEV_CONNECTED = "extra_dev_connected"
     }
 }

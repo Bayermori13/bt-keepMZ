@@ -27,6 +27,19 @@ export const KeepAliveController: React.FC<KeepAliveControllerProps> = ({
   const isFa = language === 'fa';
   const [mode, setMode] = useState<KeepAliveMode>('pure_silence');
   const [frequencies, setFrequencies] = useState<number[]>(Array(20).fill(25));
+  const [audioSpecs, setAudioSpecs] = useState({
+    sampleRate: 0,
+    state: 'STOPPED',
+    type: 'None'
+  });
+
+  // Polling real-time audio metrics every 1 second
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setAudioSpecs(audioEngine.getAudioSpecs());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Real-time audio frequency visualizer updater
   useEffect(() => {
@@ -233,17 +246,17 @@ export const KeepAliveController: React.FC<KeepAliveControllerProps> = ({
             <div className="space-y-1.5 text-xs font-mono">
               <div className="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-850">
                 <span className="text-slate-400">{isFa ? 'نرخ نمونه‌برداری:' : 'Sample Rate:'}</span>
-                <span className="text-cyan-300 font-semibold">{audioEngine.getSampleRate()} Hz PCM</span>
+                <span className="text-cyan-300 font-semibold">{audioSpecs.sampleRate > 0 ? audioSpecs.sampleRate : '---'} Hz PCM</span>
               </div>
               <div className="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-850">
                 <span className="text-slate-400">{isFa ? 'وضعیت موتور صوتی:' : 'Audio Engine:'}</span>
-                <span className={`font-semibold ${isActive ? 'text-emerald-400' : 'text-amber-400'}`}>
-                  {isActive ? `${audioEngine.getContextState().toUpperCase()}` : (isFa ? 'متوقف' : 'Stopped')}
+                <span className={`font-semibold ${audioSpecs.state === 'RUNNING' ? 'text-emerald-400' : 'text-slate-500'}`}>
+                  {audioSpecs.state}
                 </span>
               </div>
               <div className="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-850">
-                <span className="text-slate-400">{isFa ? 'تداخل:' : 'Interference:'}</span>
-                <span className="text-emerald-400 font-semibold">0% (Zero Distortion)</span>
+                <span className="text-slate-400">{isFa ? 'تداخل (Distortion):' : 'Distortion:'}</span>
+                <span className="text-emerald-400 font-semibold">0% (Pure Digital)</span>
               </div>
             </div>
           </div>

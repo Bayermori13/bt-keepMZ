@@ -66,47 +66,71 @@ jobs:
     path: 'app/src/main/java/com/stayalive/bluetooth/KeepAliveService.kt',
     name: 'KeepAliveService.kt',
     language: 'kotlin',
-    description: 'هسته اصلی سرویس اندروید: تولید سکوت PCM، عدم تداخل با تماس و موزیک، و کنترل دائمی اتصال بلوتوث',
+    description: 'هسته اصلی سرویس اندروید: تولید سکوت PCM، نوتیفیکیشن ثابت غیرقابل حذف (Foreground Service)، عدم تداخل با تماس و لاگ‌کت',
     content: `package com.stayalive.bluetooth
 
 import android.app.*
 import android.bluetooth.*
 import android.content.*
+import android.content.pm.ServiceInfo
 import android.media.*
 import android.os.*
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import java.util.concurrent.atomic.AtomicBoolean
 
 class KeepAliveService : Service(), AudioManager.OnAudioFocusChangeListener {
 
+    companion object {
+        const val TAG = "KeepAliveService"
+        const val CHANNEL_ID = "bt_stayalive_foreground_channel"
+        const val NOTIFICATION_ID = 2001
+        const val ACTION_STOP = "com.stayalive.bluetooth.ACTION_STOP"
+    }
+
     private var audioTrack: AudioTrack? = null
     private var audioManager: AudioManager? = null
     private var wakeLock: PowerManager.WakeLock? = null
-    private var isPlaying = AtomicBoolean(false)
+    private val isPlaying = AtomicBoolean(false)
     private var keepAliveThread: Thread? = null
-
-    var isMutedByFocus: Boolean = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
+        Log.i(TAG, "KeepAliveService onCreate started.")
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         createNotificationChannel()
 
+        // Persistent Foreground Notification created immediately
+        promoteToForeground("سرویس زنده نگه‌داشتن بلوتوث فعال است (استریم پیوسته سکوت)")
+
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "BluetoothStayAlive::WakeLock")
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "BluetoothStayAlive::WakeLock").apply {
+            setReferenceCounted(false)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.i(TAG, "onStartCommand action=\${intent?.action}")
         if (intent?.action == ACTION_STOP) {
             stopSelf()
             return START_NOT_STICKY
         }
 
-        startForeground(NOTIFICATION_ID, buildNotification("سرویس زنده نگه‌داشتن بلوتوث فعال است"))
+        promoteToForeground("سرویس زنده نگه‌داشتن بلوتوث فعال است (استریم پیوسته سکوت)")
         startAudioStream()
         return START_STICKY
+    }
+
+    private fun promoteToForeground(text: String) {
+        val notification = buildNotification(text)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
+        Log.i(TAG, "KeepAliveService promoted to FOREGROUND status.")
     }
 
     private fun startAudioStream() {
@@ -114,7 +138,6 @@ class KeepAliveService : Service(), AudioManager.OnAudioFocusChangeListener {
         wakeLock?.acquire(24 * 60 * 60 * 1000L)
         isPlaying.set(true)
 
-        // Request audio focus with ducking permission
         audioManager?.requestAudioFocus(
             this,
             AudioManager.STREAM_MUSIC,
@@ -148,21 +171,27 @@ class KeepAliveService : Service(), AudioManager.OnAudioFocusChangeListener {
                 .build()
 
             audioTrack?.play()
-            val zeroBuffer = ShortArray(bufferSize / 2) // Digital zero silence (0 dB)
+            Log.i(TAG, "AudioTrack.play() successful. KeepAlive digital silence stream started.")
+
+            val zeroBuffer = ShortArray(bufferSize / 2) // Digital zero silence
+            var count = 0L
 
             while (isPlaying.get()) {
-                // Continuous Non-Stop Stream: Digital zero PCM (0 dB) mixes concurrently in Android AudioFlinger
-                // Never stops during calls or music; zero audio distortion, 0% interference, keeps headset awake 24/7!
-                audioTrack?.write(zeroBuffer, 0, zeroBuffer.size)
+                val written = audioTrack?.write(zeroBuffer, 0, zeroBuffer.size) ?: 0
+                count++
+                if (count % 100L == 1L) {
+                    Log.d(TAG, "KeepAlive silent pulse active: wrote \$written samples. Headset sleep timer reset.")
+                }
             }
+
+            try {
+                audioTrack?.stop()
+                audioTrack?.release()
+            } catch (e: Exception) {}
+            audioTrack = null
         }.also { it.start() }
     }
 
-    /**
-     * Smart Audio Focus:
-     * Never mutes or interrupts the zero PCM carrier stream during calls or music.
-     * The headset DSP/DAC stays permanently connected without sleep timeout.
-     */
     override fun onAudioFocusChange(focusChange: Int) {
         // Continuous non-stop background carrier stream remains active
     }
@@ -171,9 +200,13 @@ class KeepAliveService : Service(), AudioManager.OnAudioFocusChangeListener {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Bluetooth StayAlive Service",
+                "سرویس زنده نگه‌داشتن بلوتوث MZ",
                 NotificationManager.IMPORTANCE_LOW
-            )
+            ).apply {
+                description = "جلوگیری از قطع خودکار یا خاموش شدن هندزفری بلوتوث"
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                setShowBadge(false)
+            }
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
     }
@@ -183,11 +216,14 @@ class KeepAliveService : Service(), AudioManager.OnAudioFocusChangeListener {
         val pStop = PendingIntent.getService(this, 1, stopIntent, PendingIntent.FLAG_IMMUTABLE)
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Bluetooth StayAlive")
+            .setContentTitle("MZ Bluetooth Keeper")
             .setContentText(text)
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
-            .addAction(android.R.drawable.ic_media_pause, "توقف", pStop)
-            .setOngoing(true)
+            .addAction(android.R.drawable.ic_media_pause, "توقف سرویس", pStop)
+            .setOngoing(true) // Non-dismissible
+            .setAutoCancel(false)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
     }
 
@@ -199,74 +235,85 @@ class KeepAliveService : Service(), AudioManager.OnAudioFocusChangeListener {
         if (wakeLock?.isHeld == true) wakeLock?.release()
         super.onDestroy()
     }
-
-    companion object {
-        const val CHANNEL_ID = "bt_stayalive_channel"
-        const val NOTIFICATION_ID = 1001
-        const val ACTION_STOP = "com.stayalive.bluetooth.ACTION_STOP"
-    }
 }`,
   },
   {
     path: 'app/src/main/java/com/stayalive/bluetooth/MainActivity.kt',
     name: 'MainActivity.kt',
     language: 'kotlin',
-    description: 'اکتیویتی صفحه اصلی با دکمه روشن/خاموش، نمایش نام هندزفری، درصد باتری و سیگنال',
+    description: 'اکتیویتی اصلی با درخواست تمام مجوزهای Runtime بلوتوث و اعلان (Android 12/13/14+)',
     content: `package com.stayalive.bluetooth
 
 import android.Manifest
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.widget.Button
-import android.widget.TextView
-import androidx.appcompat.app.AppCompatActivity
+import android.util.Log
+import android.widget.Toast
 import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import com.getcapacitor.BridgeActivity
 
-class MainActivity : AppCompatActivity() {
-    private var isRunning = false
+class MainActivity : BridgeActivity() {
+
+    companion object {
+        private const val TAG = "MainActivity"
+        private const val PERMISSION_REQUEST_CODE = 1002
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        registerPlugin(KeepAliveServicePlugin::class.java)
 
-        val btnToggle = findViewById<Button>(R.id.btnToggleKeepAlive)
-        val tvStatus = findViewById<TextView>(R.id.tvServiceStatus)
+        Log.i(TAG, "MainActivity created. Checking required Bluetooth & Notification runtime permissions...")
+        checkAndRequestPermissions()
+    }
 
-        requestPermissions()
+    private fun checkAndRequestPermissions() {
+        val permissionsToRequest = mutableListOf<String>()
 
-        btnToggle.setOnClickListener {
-            val serviceIntent = Intent(this, KeepAliveService::class.java)
-            if (isRunning) {
-                serviceIntent.action = KeepAliveService.ACTION_STOP
-                startService(serviceIntent)
-                isRunning = false
-                btnToggle.text = "روشن کردن سرویس"
-                tvStatus.text = "غیرفعال"
-            } else {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    startForegroundService(serviceIntent)
-                } else {
-                    startService(serviceIntent)
-                }
-                isRunning = true
-                btnToggle.text = "خاموش کردن سرویس"
-                tvStatus.text = "فعال (در حال زنده نگه‌داشتن هندزفری)"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
             }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                permissionsToRequest.add(Manifest.permission.BLUETOOTH_CONNECT)
+            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
+                permissionsToRequest.add(Manifest.permission.BLUETOOTH_SCAN)
+            }
+        }
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            permissionsToRequest.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            permissionsToRequest.add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
+
+        if (permissionsToRequest.isNotEmpty()) {
+            Log.w(TAG, "Requesting missing permissions: $permissionsToRequest")
+            ActivityCompat.requestPermissions(this, permissionsToRequest.toTypedArray(), PERMISSION_REQUEST_CODE)
+        } else {
+            Log.i(TAG, "All essential Bluetooth & Notification permissions are already granted.")
         }
     }
 
-    private fun requestPermissions() {
-        val permissions = mutableListOf<String>()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
-        }
-        if (permissions.isNotEmpty()) {
-            ActivityCompat.requestPermissions(this, permissions.toTypedArray(), 100)
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            var allGranted = true
+            for (i in permissions.indices) {
+                if (grantResults.getOrNull(i) != PackageManager.PERMISSION_GRANTED) {
+                    allGranted = false
+                }
+            }
+            if (!allGranted) {
+                Toast.makeText(this, "مجوزهای بلوتوث و اعلان برای فعالیت دائمی برنامه الزامی هستند.", Toast.LENGTH_LONG).show()
+            }
         }
     }
 }`,
@@ -275,18 +322,27 @@ class MainActivity : AppCompatActivity() {
     path: 'app/src/main/AndroidManifest.xml',
     name: 'AndroidManifest.xml',
     language: 'xml',
-    description: 'مجوزهای بلوتوث، فورگراند سرویس صوتی، ویک‌لاک و رسیور وضعیت هندزفری',
+    description: 'مجوزهای بلوتوث، موقعیت مکانی، فورگراند سرویس صوتی، ویک‌لاک و رسیور وضعیت هندزفری',
     content: `<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     package="com.stayalive.bluetooth">
 
-    <uses-permission android:name="android.permission.BLUETOOTH" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <!-- Bluetooth Permissions -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" tools:targetApi="31" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Foreground Service & Media Playback -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
 
     <application
         android:allowBackup="true"

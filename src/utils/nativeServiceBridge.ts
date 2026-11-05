@@ -2,9 +2,10 @@ import { registerPlugin } from '@capacitor/core';
 import { BluetoothDeviceInfo } from '../types';
 
 interface KeepAliveServicePluginInterface {
-  startService(): Promise<void>;
-  stopService(): Promise<void>;
-  getPairedDevices(): Promise<{ devices: BluetoothDeviceInfo[] }>;
+  startService(): Promise<{ success?: boolean; message?: string }>;
+  stopService(): Promise<{ success?: boolean; message?: string }>;
+  isServiceRunning(): Promise<{ running: boolean }>;
+  getPairedDevices(): Promise<{ devices: BluetoothDeviceInfo[]; permissionRequired?: boolean }>;
 }
 
 const KeepAliveServicePlugin = registerPlugin<KeepAliveServicePluginInterface>('KeepAliveServicePlugin');
@@ -28,6 +29,18 @@ export const NativeServiceBridge = {
     } catch (e) {
       console.warn('Native foreground service stop failed (web preview mode):', e);
     }
+  },
+
+  async isRunning(): Promise<boolean> {
+    try {
+      if (typeof window !== 'undefined' && (window as any).Capacitor) {
+        const res = await KeepAliveServicePlugin.isServiceRunning();
+        return !!res?.running;
+      }
+    } catch (e) {
+      console.warn('Native isRunning check failed:', e);
+    }
+    return false;
   },
 
   async getPairedDevices(): Promise<BluetoothDeviceInfo[]> {
